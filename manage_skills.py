@@ -92,6 +92,19 @@ def find_cycle(graph):
     return None
 
 
+def wire_command(name, local_path):
+    command_md = os.path.join(local_path, 'command.md')
+    if not os.path.exists(command_md):
+        return
+    commands_dir = os.path.expanduser('~/.claude/commands')
+    os.makedirs(commands_dir, exist_ok=True)
+    symlink_path = os.path.join(commands_dir, f'{name}.md')
+    if os.path.lexists(symlink_path):
+        os.remove(symlink_path)
+    os.symlink(command_md, symlink_path)
+    print(f'Command: {symlink_path} → {command_md}')
+
+
 def install_skill(url, name=None, local_path=None, load_at_startup=False, skip_clone=False):
     if not name:
         name = url.split('/')[-1].replace('.git', '')
@@ -130,6 +143,8 @@ def install_skill(url, name=None, local_path=None, load_at_startup=False, skip_c
         'load_at_startup': load_at_startup
     })
     write_skill_list(skills)
+
+    wire_command(name, local_path)
 
     print(f"Installed skill '{name}' from {url}")
     print(f"Local path: {local_path}")
