@@ -1,16 +1,19 @@
 #!/usr/bin/env python3
 
+import json
 import os
 import sys
 import subprocess
 import argparse
-from pathlib import Path
+
 
 def get_skills_home():
     return os.environ.get('SKILLS_HOME', os.path.expanduser('~/.agents/skills'))
 
+
 def get_skill_list_path():
     return os.path.join(get_skills_home(), 'skill-list.md')
+
 
 def read_skill_list():
     skill_list_path = get_skill_list_path()
@@ -20,36 +23,43 @@ def read_skill_list():
     with open(skill_list_path, 'r') as f:
         lines = f.readlines()
 
-    # Skip header and separator rows
-    data_lines = lines[2:]
+    table_start = None
+    for i, line in enumerate(lines):
+        if line.strip().startswith('| name |'):
+            table_start = i
+            break
+
+    if table_start is None:
+        return []
 
     skills = []
-    for line in data_lines:
-        line = line.strip()
-        if not line:
+    for line in lines[table_start + 2:]:  # skip header and separator
+        if not line.strip() or line.strip().startswith('|---'):
             continue
-        parts = line.split('|')
-        if len(parts) >= 4:
-            skills.append({
-                'name': parts[1].strip(),
-                'url': parts[2].strip(),
-                'local_path': parts[3].strip()
-            })
+        parts = [p.strip() for p in line.split('|') if p.strip()]
+        if len(parts) < 3:
+            continue
+        skills.append({
+            'name': parts[0],
+            'url': parts[1],
+            'local_path': parts[2],
+            'load_at_startup': parts[3].lower() == 'true' if len(parts) > 3 else False
+        })
 
     return skills
 
+
 def write_skill_list(skills):
     skill_list_path = get_skill_list_path()
-    header = "| name | url | local_path |\n"
-    separator = "|------|-----|------------|\n"
-
     with open(skill_list_path, 'w') as f:
-        f.write(header)
-        f.write(separator)
+        f.write('| name | url | local_path | load_at_startup |\n')
+        f.write('|------|-----|------------|-----------------|\n')
         for skill in skills:
-            f.write(f"| {skill['name']} | {skill['url']} | {skill['local_path']} |\n")
+            load_at_startup = 'true' if skill.get('load_at_startup', False) else 'false'
+            f.write(f"| {skill['name']} | {skill['url']} | {skill['local_path']} | {load_at_startup} |\n")
 
-def install_skill(url, name=None, local_path=None):
+
+def install_skill(url, name=None, local_path=None, load_at_startup=False):
     if not name:
         name = url.split('/')[-1].replace('.git', '')
 
@@ -70,13 +80,16 @@ def install_skill(url, name=None, local_path=None):
     skills.append({
         'name': name,
         'url': url,
-        'local_path': local_path
+        'local_path': local_path,
+        'load_at_startup': load_at_startup
     })
     write_skill_list(skills)
 
     print(f"Installed skill '{name}' from {url}")
     print(f"Local path: {local_path}")
     print(f"Symlink: {symlink_path}")
+    print(f"Load at startup: {load_at_startup}")
+
 
 def sync_skill(name=None):
     skills = read_skill_list()
@@ -107,6 +120,7 @@ def sync_skill(name=None):
         except subprocess.CalledProcessError as e:
             print(f"  Error: {e.stderr.strip()}")
 
+
 def list_skills():
     skills = read_skill_list()
 
@@ -114,19 +128,46 @@ def list_skills():
         print("No skills found.")
         return
 
-    print("| name | url | local_path |")
-    print("|------|-----|------------|")
+    print("| name | url | local_path | load_at_startup |")
+    print("|------|-----|------------|-----------------|")
     for skill in skills:
-        print(f"| {skill['name']} | {skill['url']} | {skill['local_path']} |")
+        load_at_startup = 'true' if skill.get('load_at_startup', False) else 'false'
+        print(f"| {skill['name']} | {skill['url']} | {skill['local_path']} | {load_at_startup} |")
+
+
+def context_output():
+    skills = read_skill_list()
+    startup_skills = [s for s in skills if s.get('load_at_startup', False)]
+
+    context_parts = []
+    for skill in startup_skills:
+        skill_md_path = os.path.join(skill['local_path'], 'SKILL.md')
+        if not os.path.exists(skill_md_path):
+            print(f"Warning: SKILL.md not found for skill '{skill['name']}'", file=sys.stderr)
+            continue
+        with open(skill_md_path, 'r') as f:
+            context_parts.append(f.read().strip())
+
+    additional_context = '\n\n---\n\n'.join(context_parts)
+
+    print(json.dumps({
+        "hookSpecificOutput": {
+            "hookEventName": "SessionStart",
+            "additionalContext": additional_context
+        }
+    }))
+
 
 def main():
     parser = argparse.ArgumentParser(
         prog='manage_skills',
-        description='Install, sync, and list skills from git URLs into SKILLS_HOME.'
+        description='Install, sync, list, and load skills from git URLs into SKILLS_HOME.'
     )
     parser.add_argument('subcommand', nargs='?', help='Subcommand to run')
     parser.add_argument('--name', help='Name of the skill')
     parser.add_argument('--path', help='Local path to clone the skill to')
+    parser.add_argument('--load-at-startup', action='store_true', default=False,
+                        help='Load this skill at Claude Code session start')
     parser.add_argument('url', nargs='?', help='URL of the skill repository')
 
     args = parser.parse_args()
@@ -139,18 +180,21 @@ def main():
         if not args.url:
             print("Error: URL is required for install command.")
             sys.exit(1)
-        install_skill(args.url, args.name, args.path)
+        install_skill(args.url, args.name, args.path, args.load_at_startup)
 
     elif args.subcommand == 'sync':
-        # args.url catches a bare positional name e.g. `sync my-skill`
         sync_skill(args.url or args.name)
 
     elif args.subcommand == 'list':
         list_skills()
 
+    elif args.subcommand == 'context':
+        context_output()
+
     else:
         print(f"Unknown subcommand: {args.subcommand}")
         sys.exit(1)
+
 
 if __name__ == '__main__':
     main()
