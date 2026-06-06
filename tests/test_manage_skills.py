@@ -6,9 +6,13 @@ from unittest.mock import Mock, patch
 import pytest
 
 from manage_skills import (
+    build_dependency_graph,
+    check_dependencies,
     context_output,
+    find_cycle,
     install_skill,
     list_skills,
+    read_skill_dependencies,
     read_skill_list,
     sync_skill,
     write_skill_list,
@@ -263,6 +267,145 @@ def test_sync_skill_error_does_not_raise(tmp_path, capsys):
         sync_skill('a')  # must not raise
 
     assert 'Error' in capsys.readouterr().out
+
+
+# -- read_skill_dependencies --
+
+def test_read_skill_dependencies_with_depends_on(tmp_path):
+    skill_dir = tmp_path / 'myskill'
+    skill_dir.mkdir()
+    (skill_dir / 'SKILL.md').write_text(
+        '---\n'
+        'name: myskill\n'
+        'depends_on:\n'
+        '  - load-topology-skill\n'
+        '  - other-skill\n'
+        '---\n'
+        '\n'
+        '# My Skill\n'
+    )
+    assert read_skill_dependencies(str(skill_dir)) == ['load-topology-skill', 'other-skill']
+
+
+def test_read_skill_dependencies_no_frontmatter(tmp_path):
+    skill_dir = tmp_path / 'myskill'
+    skill_dir.mkdir()
+    (skill_dir / 'SKILL.md').write_text('# My Skill\n\nNo frontmatter here.\n')
+    assert read_skill_dependencies(str(skill_dir)) == []
+
+
+def test_read_skill_dependencies_frontmatter_without_depends_on(tmp_path):
+    skill_dir = tmp_path / 'myskill'
+    skill_dir.mkdir()
+    (skill_dir / 'SKILL.md').write_text(
+        '---\n'
+        'name: myskill\n'
+        'description: Does a thing.\n'
+        '---\n'
+        '\n'
+        '# My Skill\n'
+    )
+    assert read_skill_dependencies(str(skill_dir)) == []
+
+
+def test_read_skill_dependencies_missing_skill_md(tmp_path):
+    skill_dir = tmp_path / 'myskill'
+    skill_dir.mkdir()
+    assert read_skill_dependencies(str(skill_dir)) == []
+
+
+# -- find_cycle --
+
+def test_find_cycle_empty_graph():
+    assert find_cycle({}) is None
+
+
+def test_find_cycle_no_cycle_linear():
+    assert find_cycle({'a': ['b'], 'b': ['c'], 'c': []}) is None
+
+
+def test_find_cycle_direct_cycle():
+    cycle = find_cycle({'a': ['b'], 'b': ['a']})
+    assert cycle is not None
+    assert cycle[0] == cycle[-1]
+    assert set(cycle) >= {'a', 'b'}
+
+
+def test_find_cycle_indirect_cycle():
+    cycle = find_cycle({'a': ['b'], 'b': ['c'], 'c': ['a']})
+    assert cycle is not None
+    assert cycle[0] == cycle[-1]
+    assert set(cycle) >= {'a', 'b', 'c'}
+
+
+def test_find_cycle_diamond_no_cycle():
+    assert find_cycle({'a': ['b', 'c'], 'b': ['d'], 'c': ['d'], 'd': []}) is None
+
+
+# -- install_skill cycle check --
+
+def test_install_skill_aborts_on_cycle(tmp_path):
+    b_dir = tmp_path / 'b-skill'
+    b_dir.mkdir()
+    (b_dir / 'SKILL.md').write_text('---\ndepends_on:\n  - a-skill\n---\n# B\n')
+
+    a_dir = tmp_path / 'a-skill'
+    a_dir.mkdir()
+    (a_dir / 'SKILL.md').write_text('---\ndepends_on:\n  - b-skill\n---\n# A\n')
+
+    p = tmp_path / 'skill-list.md'
+    skills = [{'name': 'b-skill', 'url': 'u', 'local_path': str(b_dir), 'load_at_startup': False}]
+
+    with patch('manage_skills.get_skill_list_path', return_value=str(p)), \
+         patch('manage_skills.get_skills_home', return_value=str(tmp_path / 'skills')):
+        write_skill_list(skills)
+        with pytest.raises(SystemExit):
+            install_skill('https://github.com/u/a-skill', name='a-skill', local_path=str(a_dir), skip_clone=True)
+
+
+# -- check_dependencies --
+
+def test_check_dependencies_detects_cycle(tmp_path, capsys):
+    a_dir = tmp_path / 'a-skill'
+    a_dir.mkdir()
+    (a_dir / 'SKILL.md').write_text('---\ndepends_on:\n  - b-skill\n---\n')
+
+    b_dir = tmp_path / 'b-skill'
+    b_dir.mkdir()
+    (b_dir / 'SKILL.md').write_text('---\ndepends_on:\n  - a-skill\n---\n')
+
+    p = tmp_path / 'skill-list.md'
+    skills = [
+        {'name': 'a-skill', 'url': 'u1', 'local_path': str(a_dir), 'load_at_startup': False},
+        {'name': 'b-skill', 'url': 'u2', 'local_path': str(b_dir), 'load_at_startup': False},
+    ]
+    with patch('manage_skills.get_skill_list_path', return_value=str(p)):
+        write_skill_list(skills)
+        with pytest.raises(SystemExit):
+            check_dependencies()
+
+    assert 'cycle' in capsys.readouterr().out.lower()
+
+
+def test_check_dependencies_clean(tmp_path, capsys):
+    a_dir = tmp_path / 'a-skill'
+    a_dir.mkdir()
+    (a_dir / 'SKILL.md').write_text('---\ndepends_on:\n  - b-skill\n---\n')
+
+    b_dir = tmp_path / 'b-skill'
+    b_dir.mkdir()
+    (b_dir / 'SKILL.md').write_text('---\nname: b-skill\n---\n')
+
+    p = tmp_path / 'skill-list.md'
+    skills = [
+        {'name': 'a-skill', 'url': 'u1', 'local_path': str(a_dir), 'load_at_startup': False},
+        {'name': 'b-skill', 'url': 'u2', 'local_path': str(b_dir), 'load_at_startup': False},
+    ]
+    with patch('manage_skills.get_skill_list_path', return_value=str(p)):
+        write_skill_list(skills)
+        check_dependencies()
+
+    assert 'No dependency cycles' in capsys.readouterr().out
 
 
 # -- list_skills --

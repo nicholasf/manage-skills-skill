@@ -56,6 +56,24 @@ Add this to your Claude Code `settings.json` `SessionStart` hook to load skills 
 
 Skills with `load_at_startup: true` in `skill-list.md` will have their full `SKILL.md` injected into each session's context.
 
+## Dependencies
+
+Skills can declare dependencies on other skills in their `SKILL.md` frontmatter:
+
+```yaml
+---
+name: my-skill
+depends_on:
+  - load-topology-skill
+---
+```
+
+The `list` subcommand shows each skill's declared dependencies. When installing a skill, `manage_skills.py` checks the full dependency graph for cycles before making any changes — if installing the new skill would create a cycle, the install is aborted and nothing is written. You can also validate the installed set at any time:
+
+```bash
+python3 manage_skills.py check
+```
+
 ## Slash command
 
 Once installed, `/manage-skills` is available in Claude Code. See `SKILL.md` for full details.
