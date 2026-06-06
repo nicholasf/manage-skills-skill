@@ -59,7 +59,40 @@ def write_skill_list(skills):
             f.write(f"| {skill['name']} | {skill['url']} | {skill['local_path']} | {load_at_startup} |\n")
 
 
-def install_skill(url, name=None, local_path=None, load_at_startup=False):
+def build_dependency_graph(skills):
+    graph = {}
+    for skill in skills:
+        graph[skill['name']] = read_skill_dependencies(skill['local_path'])
+    return graph
+
+
+def find_cycle(graph):
+    """Return a list of skill names forming a cycle (e.g. ['a', 'b', 'a']), or None if clean."""
+    colours = {}
+
+    def dfs(node, path):
+        colours[node] = 'grey'
+        for neighbour in graph.get(node, []):
+            if colours.get(neighbour) == 'grey':
+                idx = path.index(neighbour)
+                return path[idx:] + [neighbour]
+            if neighbour not in colours:
+                result = dfs(neighbour, path + [neighbour])
+                if result is not None:
+                    return result
+        colours[node] = 'black'
+        return None
+
+    for node in graph:
+        if node not in colours:
+            result = dfs(node, [node])
+            if result is not None:
+                return result
+
+    return None
+
+
+def install_skill(url, name=None, local_path=None, load_at_startup=False, skip_clone=False):
     if not name:
         name = url.split('/')[-1].replace('.git', '')
 
@@ -67,9 +100,22 @@ def install_skill(url, name=None, local_path=None, load_at_startup=False):
         user = url.split('/')[-2] if len(url.split('/')) >= 2 else 'unknown'
         local_path = os.path.expanduser(f'~/code/github/{user}/{name}')
 
-    os.makedirs(os.path.dirname(local_path), exist_ok=True)
+    if skip_clone:
+        if not os.path.isdir(local_path):
+            print(f"Error: --skip-clone specified but '{local_path}' does not exist.")
+            sys.exit(1)
+    else:
+        os.makedirs(os.path.dirname(local_path), exist_ok=True)
+        subprocess.run(['git', 'clone', url, local_path], check=True)
 
-    subprocess.run(['git', 'clone', url, local_path], check=True)
+    dependencies = read_skill_dependencies(local_path)
+    if dependencies:
+        graph = build_dependency_graph(read_skill_list())
+        graph[name] = dependencies
+        cycle = find_cycle(graph)
+        if cycle:
+            print(f"Error: installing '{name}' would create a dependency cycle: {' → '.join(cycle)}")
+            sys.exit(1)
 
     skills_home = get_skills_home()
     symlink_path = os.path.join(skills_home, name)
@@ -89,6 +135,12 @@ def install_skill(url, name=None, local_path=None, load_at_startup=False):
     print(f"Local path: {local_path}")
     print(f"Symlink: {symlink_path}")
     print(f"Load at startup: {load_at_startup}")
+
+    if dependencies:
+        installed_names = {s['name'] for s in read_skill_list()}
+        missing = [d for d in dependencies if d not in installed_names]
+        for dep in missing:
+            print(f"Warning: dependency '{dep}' is not installed. Run: manage_skills.py install <url> --name {dep}")
 
 
 def sync_skill(name=None):
@@ -128,11 +180,64 @@ def list_skills():
         print("No skills found.")
         return
 
-    print("| name | url | local_path | load_at_startup |")
-    print("|------|-----|------------|-----------------|")
+    print("| name | url | local_path | load_at_startup | dependencies |")
+    print("|------|-----|------------|-----------------|--------------|")
     for skill in skills:
         load_at_startup = 'true' if skill.get('load_at_startup', False) else 'false'
-        print(f"| {skill['name']} | {skill['url']} | {skill['local_path']} | {load_at_startup} |")
+        dependencies = read_skill_dependencies(skill['local_path'])
+        deps_display = ', '.join(dependencies) if dependencies else '—'
+        print(f"| {skill['name']} | {skill['url']} | {skill['local_path']} | {load_at_startup} | {deps_display} |")
+
+
+def read_skill_dependencies(local_path):
+    skill_md = os.path.join(local_path, 'SKILL.md')
+    if not os.path.exists(skill_md):
+        return []
+
+    with open(skill_md, 'r') as f:
+        lines = f.readlines()
+
+    if not lines or lines[0].strip() != '---':
+        return []
+
+    frontmatter_end = -1
+    for i in range(1, len(lines)):
+        if lines[i].strip() == '---':
+            frontmatter_end = i
+            break
+
+    if frontmatter_end == -1:
+        return []
+
+    dependencies = []
+    in_depends_on = False
+    for line in lines[1:frontmatter_end]:
+        stripped = line.strip()
+        if stripped.startswith('depends_on:'):
+            in_depends_on = True
+            continue
+        if in_depends_on:
+            if stripped.startswith('- '):
+                dependencies.append(stripped[2:].strip())
+            elif stripped and not stripped.startswith('#'):
+                in_depends_on = False
+
+    return dependencies
+
+
+def check_dependencies():
+    skills = read_skill_list()
+    if not skills:
+        print("No skills installed.")
+        return
+
+    graph = build_dependency_graph(skills)
+    cycle = find_cycle(graph)
+    if cycle:
+        print(f"Dependency cycle detected: {' → '.join(cycle)}")
+        sys.exit(1)
+    else:
+        print("No dependency cycles found.")
 
 
 def context_output():
@@ -168,6 +273,8 @@ def main():
     parser.add_argument('--path', help='Local path to clone the skill to')
     parser.add_argument('--load-at-startup', action='store_true', default=False,
                         help='Load this skill at Claude Code session start')
+    parser.add_argument('--skip-clone', action='store_true', default=False,
+                        help='Register an already-cloned local repo without git cloning')
     parser.add_argument('url', nargs='?', help='URL of the skill repository')
 
     args = parser.parse_args()
@@ -180,7 +287,7 @@ def main():
         if not args.url:
             print("Error: URL is required for install command.")
             sys.exit(1)
-        install_skill(args.url, args.name, args.path, args.load_at_startup)
+        install_skill(args.url, args.name, args.path, args.load_at_startup, args.skip_clone)
 
     elif args.subcommand == 'sync':
         sync_skill(args.url or args.name)
@@ -190,6 +297,9 @@ def main():
 
     elif args.subcommand == 'context':
         context_output()
+
+    elif args.subcommand == 'check':
+        check_dependencies()
 
     else:
         print(f"Unknown subcommand: {args.subcommand}")
