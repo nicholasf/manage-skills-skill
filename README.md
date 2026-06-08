@@ -1,6 +1,12 @@
 # manage-skills-skill
 
-A skill that manages other skills. Skills live anywhere on the filesystem and are symlinked into `$SKILLS_HOME` so agents can discover them in one place. Skills marked `load_at_startup` have their `SKILL.md` injected automatically at the start of each Claude Code session.
+A skill that manages other skills. It follows the pnpm model: a global store at `$SKILLS_HOME` holds cloned skill repos, and per-project `skills.md` files declare which skills a project needs at which versions. Projects get `.skills/` symlinks into the global store, so the repos are cloned once and shared across projects.
+
+Unlike pnpm, there is no separate manifest and lockfile — `skills.md` is both, and it's designed to be committed. Versions are pinned as full SHA1s resolved at install time, so teammates and machines get identical skill code.
+
+The other difference from a package manager is the shared secrets layer: skills often need API keys or node credentials that must never be committed. `$SKILLS_HOME/.env` holds these machine-local secrets, scaffolded from each skill's `.env.example`, so skills can find their credentials without hardcoding anything.
+
+Skills marked `load_at_startup` have their `SKILL.md` injected automatically at the start of each Claude Code session. The `context` subcommand, wired into Claude Code's `SessionStart` hook, resolves which `skills.md` to read: it checks the working directory for a local `skills.md` first, and falls back to `$SKILLS_HOME/skills.md` if none is found. This means projects with a committed `skills.md` get their own skill set, while any directory without one gets the global default — no per-project setup required to get started.
 
 ---
 
@@ -62,6 +68,16 @@ Creates `skills.md` and `.skills/` in the current directory. Subsequent `install
 ```
 /manage-skills env init
 ```
+
+**Wire up the `context` subcommand in Claude Code's `SessionStart` hook (`settings.json`):**
+```json
+{
+  "type": "command",
+  "command": "python3 \"${SKILLS_HOME:-$HOME/.agents/skills}/manage-skills-skill/manage_skills.py\" context",
+  "statusMessage": "Loading skills..."
+}
+```
+At session start, `context` checks the working directory for a local `skills.md`, falls back to `$SKILLS_HOME/skills.md`, and injects the `SKILL.md` of every `load_at_startup` skill into the session context.
 
 ---
 
