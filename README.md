@@ -1,12 +1,12 @@
 # manage-skills-skill
 
-A skill that manages other skills. It follows the pnpm model: a global store at `$SKILLS_HOME` holds cloned skill repos, and per-project `skills.md` files declare which skills a project needs at which versions. Projects get `.skills/` symlinks into the global store, so the repos are cloned once and shared across projects.
+A skill that manages other skills. A global store at `$SKILLS_HOME` holds cloned skill repos, and per-project `skills.md` files declare which skills a project needs at which versions. Projects maintain their own `.skills/` with symlinks into the global store, so the repos are cloned once and shared across projects. Alternatively, you can just default to loading the $SKILLS_HOME/skills.md if you are using a global collection of skills across many projects.
 
-Unlike pnpm, there is no separate manifest and lockfile — `skills.md` is both, and it's designed to be committed. Versions are pinned as full SHA1s resolved at install time, so teammates and machines get identical skill code.
+For convenience, this skill also sets up a .env file that secrets can use: skills often need API keys or node credentials that must never be committed. `$SKILLS_HOME/.env` holds these machine-local secrets, scaffolded from each skill's `.env.example`, so skills can find their credentials without hardcoding anything.
 
-The other difference from a package manager is the shared secrets layer: skills often need API keys or node credentials that must never be committed. `$SKILLS_HOME/.env` holds these machine-local secrets, scaffolded from each skill's `.env.example`, so skills can find their credentials without hardcoding anything.
+_For Claude_
 
-Skills marked `load_at_startup` have their `SKILL.md` injected automatically at the start of each Claude Code session. The `context` subcommand, wired into Claude Code's `SessionStart` hook, resolves which `skills.md` to read: it checks the working directory for a local `skills.md` first, and falls back to `$SKILLS_HOME/skills.md` if none is found. This means projects with a committed `skills.md` get their own skill set, while any directory without one gets the global default — no per-project setup required to get started.
+To have your favourite skill slash commands automatically available at startup, mark skills `load_at_startup` — their full `SKILL.md` (frontmatter and body) is injected into the agent's working context at the start of each Claude Code session. The `context` subcommand, wired into Claude Code's `SessionStart` hook, resolves which `skills.md` to read: it checks the working directory for a local `skills.md` first, and falls back to `$SKILLS_HOME/skills.md` if none is found. This means projects with a committed `skills.md` get their own skill set, while any directory without one gets the global default — no per-project setup required to get started.
 
 ---
 
