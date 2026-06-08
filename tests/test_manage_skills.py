@@ -9,6 +9,9 @@ from manage_skills import (
     build_dependency_graph,
     check_dependencies,
     context_output,
+    env_init,
+    env_list,
+    env_set,
     find_cycle,
     install_skill,
     list_skills,
@@ -426,3 +429,99 @@ def test_list_skills_prints_table(tmp_path, capsys):
     out = capsys.readouterr().out
     assert 'mything' in out
     assert 'name' in out
+
+
+# -- env_set / env_list / env_init --
+
+def test_env_set_creates_file(tmp_path, capsys):
+    with patch('manage_skills.get_skills_home', return_value=str(tmp_path)):
+        env_set('POND_HERMES_KEY=abc123')
+    env_file = tmp_path / '.env'
+    assert env_file.exists()
+    assert 'POND_HERMES_KEY=abc123' in env_file.read_text()
+    assert 'Set POND_HERMES_KEY' in capsys.readouterr().out
+
+
+def test_env_set_updates_existing_key(tmp_path):
+    env_file = tmp_path / '.env'
+    env_file.write_text('POND_HERMES_KEY=old\n')
+    with patch('manage_skills.get_skills_home', return_value=str(tmp_path)):
+        env_set('POND_HERMES_KEY=new')
+    assert 'POND_HERMES_KEY=new' in env_file.read_text()
+    assert 'POND_HERMES_KEY=old' not in env_file.read_text()
+
+
+def test_env_set_missing_equals_exits(tmp_path):
+    with patch('manage_skills.get_skills_home', return_value=str(tmp_path)):
+        with pytest.raises(SystemExit):
+            env_set('NO_EQUALS')
+
+
+def test_env_set_empty_key_exits(tmp_path):
+    with patch('manage_skills.get_skills_home', return_value=str(tmp_path)):
+        with pytest.raises(SystemExit):
+            env_set('=value')
+
+
+def test_env_list_prints_keys_not_values(tmp_path, capsys):
+    env_file = tmp_path / '.env'
+    env_file.write_text('POND_HERMES_KEY=secret\nGOLLUM_HERMES_KEY=other\n')
+    with patch('manage_skills.get_skills_home', return_value=str(tmp_path)):
+        env_list()
+    out = capsys.readouterr().out
+    assert 'POND_HERMES_KEY' in out
+    assert 'GOLLUM_HERMES_KEY' in out
+    assert 'secret' not in out
+    assert 'other' not in out
+
+
+def test_env_list_empty(tmp_path, capsys):
+    with patch('manage_skills.get_skills_home', return_value=str(tmp_path)):
+        env_list()
+    assert 'No entries' in capsys.readouterr().out
+
+
+def test_env_init_scaffolds_from_example(tmp_path, capsys):
+    skill_dir = tmp_path / 'ask-remote-agent-skill'
+    skill_dir.mkdir()
+    (skill_dir / '.env.example').write_text('POND_HERMES_KEY=\nGOLLUM_HERMES_KEY=\n')
+
+    p = tmp_path / 'skill-list.md'
+    skills = [{'name': 'ask-remote-agent-skill', 'url': 'u', 'local_path': str(skill_dir), 'load_at_startup': False}]
+    with patch('manage_skills.get_skill_list_path', return_value=str(p)), \
+         patch('manage_skills.get_skills_home', return_value=str(tmp_path)):
+        write_skill_list(skills)
+        env_init()
+
+    out = capsys.readouterr().out
+    assert 'Added POND_HERMES_KEY' in out
+    assert 'Added GOLLUM_HERMES_KEY' in out
+    env_file = tmp_path / '.env'
+    assert env_file.exists()
+
+
+def test_env_init_skips_existing_keys(tmp_path, capsys):
+    skill_dir = tmp_path / 'myskill'
+    skill_dir.mkdir()
+    (skill_dir / '.env.example').write_text('POND_HERMES_KEY=\n')
+
+    env_file = tmp_path / '.env'
+    env_file.write_text('POND_HERMES_KEY=existing\n')
+
+    p = tmp_path / 'skill-list.md'
+    skills = [{'name': 'myskill', 'url': 'u', 'local_path': str(skill_dir), 'load_at_startup': False}]
+    with patch('manage_skills.get_skill_list_path', return_value=str(p)), \
+         patch('manage_skills.get_skills_home', return_value=str(tmp_path)):
+        write_skill_list(skills)
+        env_init()
+
+    assert 'Nothing new' in capsys.readouterr().out
+    assert 'POND_HERMES_KEY=existing' in env_file.read_text()
+
+
+def test_env_init_no_skills(tmp_path, capsys):
+    p = tmp_path / 'skill-list.md'
+    with patch('manage_skills.get_skill_list_path', return_value=str(p)), \
+         patch('manage_skills.get_skills_home', return_value=str(tmp_path)):
+        env_init()
+    assert 'No skills' in capsys.readouterr().out
