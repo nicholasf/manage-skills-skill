@@ -255,6 +255,90 @@ def check_dependencies():
         print("No dependency cycles found.")
 
 
+def _env_path():
+    return os.path.join(get_skills_home(), '.env')
+
+
+def _read_env():
+    path = _env_path()
+    if not os.path.exists(path):
+        return {}
+    entries = {}
+    with open(path, 'r') as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith('#'):
+                continue
+            if '=' in line:
+                key, _, value = line.partition('=')
+                entries[key.strip()] = value.strip()
+    return entries
+
+
+def _write_env(entries):
+    path = _env_path()
+    with open(path, 'w') as f:
+        for key, value in sorted(entries.items()):
+            f.write(f'{key}={value}\n')
+
+
+def env_set(key_value):
+    if '=' not in key_value:
+        print("Error: expected KEY=value")
+        sys.exit(1)
+    key, _, value = key_value.partition('=')
+    key = key.strip()
+    if not key:
+        print("Error: key must not be empty")
+        sys.exit(1)
+    entries = _read_env()
+    entries[key] = value
+    _write_env(entries)
+    print(f"Set {key}")
+
+
+def env_list():
+    entries = _read_env()
+    if not entries:
+        print("No entries in .env")
+        return
+    for key in sorted(entries):
+        print(key)
+
+
+def env_init():
+    skills = read_skill_list()
+    if not skills:
+        print("No skills installed.")
+        return
+
+    existing = _read_env()
+    added = []
+    for skill in skills:
+        example = os.path.join(skill['local_path'], '.env.example')
+        if not os.path.exists(example):
+            continue
+        with open(example, 'r') as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith('#'):
+                    continue
+                if '=' in line:
+                    key, _, value = line.partition('=')
+                    key = key.strip()
+                    if key and key not in existing:
+                        existing[key] = value.strip()
+                        added.append(key)
+
+    if not added:
+        print("Nothing new to add.")
+        return
+
+    _write_env(existing)
+    for key in added:
+        print(f"Added {key}")
+
+
 def context_output():
     skills = read_skill_list()
     startup_skills = [s for s in skills if s.get('load_at_startup', False)]
@@ -291,6 +375,7 @@ def main():
     parser.add_argument('--skip-clone', action='store_true', default=False,
                         help='Register an already-cloned local repo without git cloning')
     parser.add_argument('url', nargs='?', help='URL of the skill repository')
+    parser.add_argument('extra', nargs='?', help='Extra argument (e.g. KEY=value for env set, sub-action for env)')
 
     args = parser.parse_args()
 
@@ -315,6 +400,21 @@ def main():
 
     elif args.subcommand == 'check':
         check_dependencies()
+
+    elif args.subcommand == 'env':
+        action = args.url  # env's first positional is parsed into url slot
+        if action == 'set':
+            if not args.extra:
+                print("Error: env set requires KEY=value")
+                sys.exit(1)
+            env_set(args.extra)
+        elif action == 'list':
+            env_list()
+        elif action == 'init':
+            env_init()
+        else:
+            print("Usage: manage_skills env <set KEY=value | list | init>")
+            sys.exit(1)
 
     else:
         print(f"Unknown subcommand: {args.subcommand}")
