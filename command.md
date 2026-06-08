@@ -9,21 +9,30 @@ ${SKILLS_HOME:-$HOME/.agents/skills}/manage-skills-skill/manage_skills.py
 
 ## Subcommands
 
-### `install <url> [--name <name>] [--path <local_path>]`
+### `install <url> [--name <name>] [--path <local_path>] [--version <sha1-or-tag>]`
 
 ```bash
-python3 "${SKILLS_HOME:-$HOME/.agents/skills}/manage-skills-skill/manage_skills.py" install <url> [--name <name>] [--path <local_path>]
+python3 "${SKILLS_HOME:-$HOME/.agents/skills}/manage-skills-skill/manage_skills.py" install <url> [--name <name>] [--path <local_path>] [--version <sha1-or-tag>]
 ```
 
-Clones the repository, creates a symlink in `$SKILLS_HOME`, records the entry in `skill-list.md`, checks for dependency cycles, and creates `~/.claude/commands/<name>.md` if the skill has a `command.md`. Present the confirmation output to the user.
+Clones the repository, optionally checks out a specific SHA1 or tag (resolved to a full SHA1 and stored), creates a symlink in `$SKILLS_HOME`, records the entry in `skills.md`, checks for dependency cycles, and creates `~/.claude/commands/<name>.md` if the skill has a `command.md`. When run inside a project with a local `skills.md`, also creates a `.skills/<name>` symlink. Present the confirmation output to the user.
 
-### `sync [name]`
+### `sync [name] [--version <sha1-or-tag>]`
 
 ```bash
-python3 "${SKILLS_HOME:-$HOME/.agents/skills}/manage-skills-skill/manage_skills.py" sync [name]
+python3 "${SKILLS_HOME:-$HOME/.agents/skills}/manage-skills-skill/manage_skills.py" sync [name] [--version <sha1-or-tag>]
 ```
 
-Pulls the latest changes for a named skill or all skills. Present the per-skill result to the user.
+Without `--version`: pulls latest for unpinned skills; re-checks out the pinned SHA1 for pinned skills.
+With `--version <ref>`: re-pins the named skill to the given SHA1 or tag (resolves and stores the full SHA1). `--version` requires a skill name. Present the per-skill result to the user.
+
+### `init`
+
+```bash
+python3 "${SKILLS_HOME:-$HOME/.agents/skills}/manage-skills-skill/manage_skills.py" init
+```
+
+Initialises a per-project `skills.md` and `.skills/` directory in the current working directory. After init, `install` will write to the local `skills.md` and create `.skills/<name>` symlinks. Safe to run once per project.
 
 ### `list`
 
@@ -31,7 +40,7 @@ Pulls the latest changes for a named skill or all skills. Present the per-skill 
 python3 "${SKILLS_HOME:-$HOME/.agents/skills}/manage-skills-skill/manage_skills.py" list
 ```
 
-Reads `skill-list.md` and prints the table with a dependencies column. Render it clearly for the user.
+Reads `skills.md` and prints the table with version and dependencies columns. Render it clearly for the user.
 
 ### `check`
 
@@ -40,6 +49,12 @@ python3 "${SKILLS_HOME:-$HOME/.agents/skills}/manage-skills-skill/manage_skills.
 ```
 
 Validates all installed skills for dependency cycles. Reports any cycle found as a path (e.g. `a → b → a`).
+
+## skills.md — global and per-project
+
+`$SKILLS_HOME/skills.md` is the global registry, used when no local `skills.md` is present. Running `init` in a project creates a local `skills.md` that takes precedence for all subcommands, including the SessionStart context hook.
+
+The `version` column stores a full SHA1. Empty means the skill tracks the latest main branch.
 
 ## Dependency tracking
 
