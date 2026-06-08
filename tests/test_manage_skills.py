@@ -221,6 +221,7 @@ def test_install_skill_clones_and_symlinks(tmp_path):
 
     with patch('manage_skills.get_skill_list_path', return_value=str(p)), \
          patch('manage_skills.get_skills_home', return_value=skills_home), \
+         patch('os.path.isdir', return_value=False), \
          patch('subprocess.run') as mock_run, \
          patch('os.symlink') as mock_symlink, \
          patch('os.path.lexists', return_value=False), \
@@ -263,6 +264,23 @@ def test_install_skill_with_version_checkouts_and_resolves_sha(tmp_path):
     with patch('manage_skills.get_skill_list_path', return_value=str(p)):
         result = read_skill_list()
     assert result[0]['version'] == full_sha
+
+
+def test_install_skill_skips_clone_if_already_on_disk(tmp_path, capsys):
+    p = tmp_path / 'skills.md'
+    skills_home = str(tmp_path / 'skills')
+
+    with patch('manage_skills.get_skill_list_path', return_value=str(p)), \
+         patch('manage_skills.get_skills_home', return_value=skills_home), \
+         patch('os.path.isdir', return_value=True), \
+         patch('subprocess.run') as mock_run, \
+         patch('os.symlink'), \
+         patch('os.makedirs'):
+
+        install_skill('https://github.com/user/myskill', name='myskill', local_path='/tmp/myskill')
+
+    mock_run.assert_not_called()
+    assert 'skipping clone' in capsys.readouterr().out
 
 
 def test_install_skill_derives_name_from_url(tmp_path):

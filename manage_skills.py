@@ -147,6 +147,8 @@ def install_skill(url, name=None, local_path=None, load_at_startup=False, skip_c
         if not os.path.isdir(local_path):
             print(f"Error: --skip-clone specified but '{local_path}' does not exist.")
             sys.exit(1)
+    elif os.path.isdir(local_path):
+        print(f"Already cloned at {local_path}, skipping clone.")
     else:
         os.makedirs(os.path.dirname(local_path), exist_ok=True)
         subprocess.run(['git', 'clone', url, local_path], check=True)
