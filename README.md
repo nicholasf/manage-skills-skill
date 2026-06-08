@@ -48,6 +48,21 @@ $SKILLS_HOME/
 
 ---
 
+## Shared secrets — `$SKILLS_HOME/.env`
+
+Skills that need API keys or per-node credentials read them from a single shared file: `$SKILLS_HOME/.env`. This file is gitignored and machine-local — it never leaves the machine.
+
+```bash
+# $SKILLS_HOME/.env
+# Convention: <NODE>_<SERVICE>_<VAR>
+POND_HERMES_KEY=your-bearer-token
+GOLLUM_HERMES_KEY=your-bearer-token
+```
+
+The naming convention is `<NODE>_<SERVICE>_<VAR>`. Each skill's topology column records the env var name it expects (e.g. `hermes_key_env: POND_HERMES_KEY`) so the skill knows where to look without hardcoding node names. Copy `.env.example` from [load-topology-skill](https://github.com/nicholasf/load-topology-skill) as a starting point and add entries as you install skills that need them.
+
+---
+
 ## Setup
 
 Clone this repo, then run:
