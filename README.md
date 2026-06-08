@@ -1,51 +1,67 @@
 # manage-skills-skill
 
-A skill that manages other skills. It's skills all the way down.
+A skill that manages other skills. Skills live anywhere on the filesystem and are symlinked into `$SKILLS_HOME` so agents can discover them in one place. Skills marked `load_at_startup` have their `SKILL.md` injected automatically at the start of each Claude Code session.
 
-This skill organises other skills under a common location via symlinks. Skills can live anywhere on the filesystem and get symlinked into `$SKILLS_HOME`, so agents can discover them all in one place. Skills marked `load_at_startup` have their `SKILL.md` loaded automatically at the start of each Claude Code session.
+---
+
+## Examples
+
+```
+/manage-skills install https://github.com/nicholasf/ask-remote-agent-skill
+```
+Clone and register a skill. Wires up its slash command automatically.
+
+```
+/manage-skills install https://github.com/nicholasf/ask-remote-agent-skill --load-at-startup
+```
+Install and load the skill's context at every session start.
+
+```
+/manage-skills sync
+```
+Pull the latest changes for all installed skills.
+
+```
+/manage-skills list
+```
+Show all installed skills and their dependencies.
+
+```
+/manage-skills check
+```
+Validate the dependency graph — reports any cycles.
+
+---
+
+## How it works
+
+```
+$SKILLS_HOME/
+  manage-skills-skill/   ← real repo
+  ask-remote-agent-skill → ~/code/.../ask-remote-agent-skill  (symlink)
+  load-topology-skill    → ~/code/.../load-topology-skill     (symlink)
+  skill-list.md          ← registry
+  .env                   ← secrets (gitignored)
+```
+
+`install` clones the repo, creates the symlink, records it in `skill-list.md`, checks for dependency cycles, and wires up the slash command by symlinking `command.md` into `~/.claude/commands/<name>.md`.
+
+---
 
 ## Setup
 
 Clone this repo, then run:
+
 ```bash
 bash bootstrap.sh
 ```
 
-Creates `$SKILLS_HOME` (default `~/.agents/skills`), symlinks this repo into it, and initialises `skill-list.md` with manage-skills-skill as the first entry. Set `SKILLS_HOME` in your shell rc file to use a different location.
+Creates `$SKILLS_HOME` (default `~/.agents/skills`), symlinks this repo into it, and initialises `skill-list.md`. Add `SKILLS_HOME` to your shell rc file to use a different location.
 
-## Usage
-
-Install a skill from a git URL:
-```bash
-python3 manage_skills.py install https://github.com/nicholasf/ask-foreign-agent-skill
-```
-
-Install and load at session start:
-```bash
-python3 manage_skills.py install https://github.com/nicholasf/ask-foreign-agent-skill \
-  --name ask-foreign-agent \
-  --path ~/code/github/nicholasf/ask-foreign-agent-skill \
-  --load-at-startup
-```
-
-Sync all installed skills:
-```bash
-python3 manage_skills.py sync
-```
-
-Sync one skill:
-```bash
-python3 manage_skills.py sync ask-foreign-agent
-```
-
-List installed skills:
-```bash
-python3 manage_skills.py list
-```
-
-## Session startup
+### Session startup
 
 Add this to your Claude Code `settings.json` `SessionStart` hook to load skills automatically:
+
 ```json
 {
   "type": "command",
@@ -56,9 +72,27 @@ Add this to your Claude Code `settings.json` `SessionStart` hook to load skills 
 
 Skills with `load_at_startup: true` in `skill-list.md` will have their full `SKILL.md` injected into each session's context.
 
+---
+
+## Subcommands
+
+**`install <url> [--name <name>] [--path <local_path>] [--load-at-startup]`**
+Clone, symlink, register, and wire up a skill. Use `--path` to point at a local clone instead of cloning fresh.
+
+**`sync [name]`**
+Pull latest changes for a named skill or all skills.
+
+**`list`**
+Print the skill registry with dependencies.
+
+**`check`**
+Audit the dependency graph for cycles.
+
+---
+
 ## Dependencies
 
-Skills can declare dependencies on other skills in their `SKILL.md` frontmatter:
+Skills declare dependencies in their `SKILL.md` frontmatter:
 
 ```yaml
 ---
@@ -68,12 +102,4 @@ depends_on:
 ---
 ```
 
-The `list` subcommand shows each skill's declared dependencies. When installing a skill, `manage_skills.py` checks the full dependency graph for cycles before making any changes — if installing the new skill would create a cycle, the install is aborted and nothing is written. You can also validate the installed set at any time:
-
-```bash
-python3 manage_skills.py check
-```
-
-## Slash command
-
-Once installed, `/manage-skills` is available in Claude Code. See `SKILL.md` for full details.
+`install` checks for cycles before writing anything. `check` can be run at any time. Cycles are detected with DFS and reported as a path (e.g. `a → b → a`).
