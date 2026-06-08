@@ -31,6 +31,21 @@ Show all installed skills and their dependencies.
 ```
 Validate the dependency graph — reports any cycles.
 
+```
+/manage-skills env set POND_HERMES_KEY=your-bearer-token
+```
+Write or update a key in `$SKILLS_HOME/.env`.
+
+```
+/manage-skills env list
+```
+Show all key names in `.env` (values are not printed).
+
+```
+/manage-skills env init
+```
+Scaffold `.env` from the `.env.example` files of all installed skills — adds missing keys without overwriting existing ones.
+
 ---
 
 ## How it works
@@ -102,6 +117,15 @@ Print the skill registry with dependencies.
 
 **`check`**
 Audit the dependency graph for cycles.
+
+**`env set KEY=value`**
+Write or update a key in `$SKILLS_HOME/.env`.
+
+**`env list`**
+Print all key names (not values).
+
+**`env init`**
+Scaffold `.env` from the `.env.example` files of every installed skill. Safe to run repeatedly — existing keys are never overwritten.
 
 ---
 
