@@ -331,7 +331,13 @@ def check_dependencies():
         print("No dependency cycles found.")
 
 
+def _is_project_mode():
+    return os.path.exists(os.path.join(os.getcwd(), 'skills.md'))
+
+
 def _env_path():
+    if _is_project_mode():
+        return os.path.join(os.getcwd(), '.env')
     return os.path.join(get_skills_home(), '.env')
 
 
@@ -378,6 +384,7 @@ def env_list():
     if not entries:
         print("No entries in .env")
         return
+    print(f"# {_env_path()}")
     for key in sorted(entries):
         print(key)
 

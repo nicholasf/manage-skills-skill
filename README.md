@@ -113,18 +113,22 @@ The global `$SKILLS_HOME/skills.md` remains the default when no local `skills.md
 
 ---
 
-## Shared secrets — `$SKILLS_HOME/.env`
+## Shared secrets — `.env`
 
-Skills that need API keys or per-node credentials read them from a single shared file: `$SKILLS_HOME/.env`. This file is gitignored and machine-local.
+The `.env` layer is a convenience, not managed infrastructure. Individual skills are responsible for reading their own credentials — manage-skills just puts the file in the right place.
+
+In global mode, that file is `$SKILLS_HOME/.env`. In a project with a local `skills.md`, it is `./.env` next to the registry. The `env` subcommands (`set`, `list`, `init`) always operate on whichever file is active. `env list` prints the path at the top so there is no ambiguity.
 
 ```bash
-# $SKILLS_HOME/.env
+# $SKILLS_HOME/.env  (or ./.env in a project)
 # Convention: <NODE>_<SERVICE>_<VAR>
 POND_HERMES_KEY=your-bearer-token
 GOLLUM_HERMES_KEY=your-bearer-token
 ```
 
-Each skill's topology column records the env var name it expects so the skill knows where to look without hardcoding node names.
+A project `.env` can deliberately carry the same key as the global one with a different value — this is a deliberate overlap, not a collision. The skill reads whichever file it finds; switching between global and per-project mode changes which file that is.
+
+For a concrete example, [ask-remote-agent-skill](https://github.com/nicholasf/ask-remote-agent-skill) stores a bearer token for its agent handle in `.env`. Different projects can point at different agent endpoints by overlapping that key locally.
 
 ---
 
