@@ -11,8 +11,15 @@ def get_skills_home():
     return os.environ.get('SKILLS_HOME', os.path.expanduser('~/.agents/skills'))
 
 
+def get_global_skills_path():
+    return os.path.join(get_skills_home(), 'skills.md')
+
+
 def get_skill_list_path():
-    return os.path.join(get_skills_home(), 'skill-list.md')
+    local = os.path.join(os.getcwd(), 'skills.md')
+    if os.path.exists(local):
+        return local
+    return get_global_skills_path()
 
 
 def read_skill_list():
@@ -43,7 +50,8 @@ def read_skill_list():
             'name': parts[0],
             'url': parts[1],
             'local_path': parts[2],
-            'load_at_startup': parts[3].lower() == 'true' if len(parts) > 3 else False
+            'load_at_startup': parts[3].lower() == 'true' if len(parts) > 3 else False,
+            'version': parts[4] if len(parts) > 4 else '',
         })
 
     return skills
@@ -52,11 +60,12 @@ def read_skill_list():
 def write_skill_list(skills):
     skill_list_path = get_skill_list_path()
     with open(skill_list_path, 'w') as f:
-        f.write('| name | url | local_path | load_at_startup |\n')
-        f.write('|------|-----|------------|-----------------|\n')
+        f.write('| name | url | local_path | load_at_startup | version |\n')
+        f.write('|------|-----|------------|-----------------|--------|\n')
         for skill in skills:
             load_at_startup = 'true' if skill.get('load_at_startup', False) else 'false'
-            f.write(f"| {skill['name']} | {skill['url']} | {skill['local_path']} | {load_at_startup} |\n")
+            version = skill.get('version', '')
+            f.write(f"| {skill['name']} | {skill['url']} | {skill['local_path']} | {load_at_startup} | {version} |\n")
 
 
 def build_dependency_graph(skills):
@@ -92,6 +101,14 @@ def find_cycle(graph):
     return None
 
 
+def resolve_sha1(local_path):
+    result = subprocess.run(
+        ['git', '-C', local_path, 'rev-parse', 'HEAD'],
+        capture_output=True, text=True, check=True
+    )
+    return result.stdout.strip()
+
+
 def wire_command(name, local_path):
     command_md = os.path.join(local_path, 'command.md')
     if not os.path.exists(command_md):
@@ -105,7 +122,20 @@ def wire_command(name, local_path):
     print(f'Command: {symlink_path} → {command_md}')
 
 
-def install_skill(url, name=None, local_path=None, load_at_startup=False, skip_clone=False):
+def wire_skills_dir(name, local_path):
+    """Create .skills/<name> symlink when in per-project mode."""
+    if not os.path.exists(os.path.join(os.getcwd(), 'skills.md')):
+        return
+    skills_dir = os.path.join(os.getcwd(), '.skills')
+    os.makedirs(skills_dir, exist_ok=True)
+    symlink_path = os.path.join(skills_dir, name)
+    if os.path.lexists(symlink_path):
+        os.remove(symlink_path)
+    os.symlink(local_path, symlink_path)
+    print(f'Skills dir: {symlink_path} → {local_path}')
+
+
+def install_skill(url, name=None, local_path=None, load_at_startup=False, skip_clone=False, version=None):
     if not name:
         name = url.split('/')[-1].replace('.git', '')
 
@@ -121,6 +151,11 @@ def install_skill(url, name=None, local_path=None, load_at_startup=False, skip_c
         os.makedirs(os.path.dirname(local_path), exist_ok=True)
         subprocess.run(['git', 'clone', url, local_path], check=True)
 
+    if version:
+        subprocess.run(['git', '-C', local_path, 'fetch', 'origin'], check=True, capture_output=True)
+        subprocess.run(['git', '-C', local_path, 'checkout', version], check=True, capture_output=True)
+        version = resolve_sha1(local_path)
+
     dependencies = read_skill_dependencies(local_path)
     if dependencies:
         graph = build_dependency_graph(read_skill_list())
@@ -133,14 +168,19 @@ def install_skill(url, name=None, local_path=None, load_at_startup=False, skip_c
     skills_home = get_skills_home()
     symlink_path = os.path.join(skills_home, name)
     os.makedirs(skills_home, exist_ok=True)
+    if os.path.lexists(symlink_path):
+        os.remove(symlink_path)
     os.symlink(local_path, symlink_path)
+
+    wire_skills_dir(name, local_path)
 
     skills = read_skill_list()
     skills.append({
         'name': name,
         'url': url,
         'local_path': local_path,
-        'load_at_startup': load_at_startup
+        'load_at_startup': load_at_startup,
+        'version': version or '',
     })
     write_skill_list(skills)
 
@@ -150,6 +190,8 @@ def install_skill(url, name=None, local_path=None, load_at_startup=False, skip_c
     print(f"Local path: {local_path}")
     print(f"Symlink: {symlink_path}")
     print(f"Load at startup: {load_at_startup}")
+    if version:
+        print(f"Version: {version}")
 
     if dependencies:
         installed_names = {s['name'] for s in read_skill_list()}
@@ -158,7 +200,11 @@ def install_skill(url, name=None, local_path=None, load_at_startup=False, skip_c
             print(f"Warning: dependency '{dep}' is not installed. Run: manage_skills.py install <url> --name {dep}")
 
 
-def sync_skill(name=None):
+def sync_skill(name=None, version=None):
+    if version and not name:
+        print("Error: --version requires a skill name.")
+        sys.exit(1)
+
     skills = read_skill_list()
 
     if not skills:
@@ -174,18 +220,34 @@ def sync_skill(name=None):
     else:
         skill_list = skills
 
+    changed = False
     for skill in skill_list:
         print(f"Syncing {skill['name']}...")
         try:
-            result = subprocess.run(
-                ['git', '-C', skill['local_path'], 'pull'],
-                capture_output=True,
-                text=True,
-                check=True
-            )
-            print(f"  Success: {result.stdout.strip()}")
+            if version:
+                subprocess.run(['git', '-C', skill['local_path'], 'fetch', 'origin'], check=True, capture_output=True)
+                subprocess.run(['git', '-C', skill['local_path'], 'checkout', version], check=True, capture_output=True)
+                resolved = resolve_sha1(skill['local_path'])
+                skill['version'] = resolved
+                changed = True
+                print(f"  Pinned to {resolved[:8]}")
+            elif skill.get('version'):
+                subprocess.run(['git', '-C', skill['local_path'], 'fetch', 'origin'], check=True, capture_output=True)
+                subprocess.run(['git', '-C', skill['local_path'], 'checkout', skill['version']], check=True, capture_output=True)
+                print(f"  Pinned to {skill['version'][:8]}, re-checked out.")
+            else:
+                result = subprocess.run(
+                    ['git', '-C', skill['local_path'], 'pull'],
+                    capture_output=True,
+                    text=True,
+                    check=True
+                )
+                print(f"  {result.stdout.strip()}")
         except subprocess.CalledProcessError as e:
-            print(f"  Error: {e.stderr.strip()}")
+            print(f"  Error: {e.stderr.strip() if e.stderr else str(e)}")
+
+    if changed:
+        write_skill_list(skills)
 
 
 def list_skills():
@@ -195,13 +257,27 @@ def list_skills():
         print("No skills found.")
         return
 
-    print("| name | url | local_path | load_at_startup | dependencies |")
-    print("|------|-----|------------|-----------------|--------------|")
+    print("| name | url | local_path | load_at_startup | version | dependencies |")
+    print("|------|-----|------------|-----------------|---------|--------------|")
     for skill in skills:
         load_at_startup = 'true' if skill.get('load_at_startup', False) else 'false'
         dependencies = read_skill_dependencies(skill['local_path'])
         deps_display = ', '.join(dependencies) if dependencies else '—'
-        print(f"| {skill['name']} | {skill['url']} | {skill['local_path']} | {load_at_startup} | {deps_display} |")
+        version = skill.get('version', '') or '—'
+        print(f"| {skill['name']} | {skill['url']} | {skill['local_path']} | {load_at_startup} | {version} | {deps_display} |")
+
+
+def init_project():
+    local_skills = os.path.join(os.getcwd(), 'skills.md')
+    if os.path.exists(local_skills):
+        print("skills.md already exists.")
+        return
+    with open(local_skills, 'w') as f:
+        f.write('| name | url | local_path | load_at_startup | version |\n')
+        f.write('|------|-----|------------|-----------------|--------|\n')
+    skills_dir = os.path.join(os.getcwd(), '.skills')
+    os.makedirs(skills_dir, exist_ok=True)
+    print(f"Initialized skills.md and .skills/ in {os.getcwd()}")
 
 
 def read_skill_dependencies(local_path):
@@ -255,7 +331,13 @@ def check_dependencies():
         print("No dependency cycles found.")
 
 
+def _is_project_mode():
+    return os.path.exists(os.path.join(os.getcwd(), 'skills.md'))
+
+
 def _env_path():
+    if _is_project_mode():
+        return os.path.join(os.getcwd(), '.env')
     return os.path.join(get_skills_home(), '.env')
 
 
@@ -302,6 +384,7 @@ def env_list():
     if not entries:
         print("No entries in .env")
         return
+    print(f"# {_env_path()}")
     for key in sorted(entries):
         print(key)
 
@@ -374,6 +457,7 @@ def main():
                         help='Load this skill at Claude Code session start')
     parser.add_argument('--skip-clone', action='store_true', default=False,
                         help='Register an already-cloned local repo without git cloning')
+    parser.add_argument('--version', help='Git SHA1 or tag to pin the skill to')
     parser.add_argument('url', nargs='?', help='URL of the skill repository')
     parser.add_argument('extra', nargs='?', help='Extra argument (e.g. KEY=value for env set, sub-action for env)')
 
@@ -387,10 +471,10 @@ def main():
         if not args.url:
             print("Error: URL is required for install command.")
             sys.exit(1)
-        install_skill(args.url, args.name, args.path, args.load_at_startup, args.skip_clone)
+        install_skill(args.url, args.name, args.path, args.load_at_startup, args.skip_clone, args.version)
 
     elif args.subcommand == 'sync':
-        sync_skill(args.url or args.name)
+        sync_skill(args.url or args.name, args.version)
 
     elif args.subcommand == 'list':
         list_skills()
@@ -400,6 +484,9 @@ def main():
 
     elif args.subcommand == 'check':
         check_dependencies()
+
+    elif args.subcommand == 'init':
+        init_project()
 
     elif args.subcommand == 'env':
         action = args.url  # env's first positional is parsed into url slot
