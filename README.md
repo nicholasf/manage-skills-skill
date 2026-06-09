@@ -1,6 +1,6 @@
 # manage-skills-skill
 
-A skill that manages other skill from a locally kept, global registry (a bit like pnpm and uv). A global store at `$SKILLS_HOME` holds cloned skill repos, and per-project `skills.md` files declare which skills a project needs at which versions. Projects maintain their own `.skills/` with symlinks into the global store, so the repos are cloned once and shared across projects. Alternatively, you can just default to loading the $SKILLS_HOME/skills.md if you are using a global collection of skills across many projects.
+A skill that manages other skill from a locally kept, global registry (a bit like pnpm, cargo and uv). A global store at `$SKILLS_HOME` holds cloned skill repos, and per-project `skills.md` files declare which skills a project needs at which versions. Projects maintain their own `.skills/` with symlinks into the global store, so the repos are cloned once and shared across projects. Alternatively, you can just default to loading the $SKILLS_HOME/skills.md if you are using a global collection of skills across many projects.
 
 For convenience, this skill also sets up a .env file that secrets can use: skills often need API keys or node credentials that must never be committed. `$SKILLS_HOME/.env` holds these machine-local secrets, scaffolded from each skill's `.env.example`, so skills can find their credentials without hardcoding anything.
 
