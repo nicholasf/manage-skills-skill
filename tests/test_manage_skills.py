@@ -126,7 +126,7 @@ def test_write_skill_list_includes_version_column(tmp_path):
     with patch('manage_skills.get_skill_list_path', return_value=str(p)):
         write_skill_list(skills)
     assert 'deadbeef' in p.read_text()
-    assert 'version' in p.read_text()
+    assert 'git_sha1' in p.read_text()
 
 
 # -- context_output --
@@ -351,9 +351,11 @@ def test_sync_skill_all(tmp_path):
         mock_run.return_value = Mock(stdout='Already up to date.', stderr='')
         sync_skill()
 
-    assert mock_run.call_count == 2
+    assert mock_run.call_count == 4
     mock_run.assert_any_call(['git', '-C', '/tmp/a', 'pull'], capture_output=True, text=True, check=True)
     mock_run.assert_any_call(['git', '-C', '/tmp/b', 'pull'], capture_output=True, text=True, check=True)
+    mock_run.assert_any_call(['git', '-C', '/tmp/a', 'rev-parse', 'HEAD'], capture_output=True, text=True, check=True)
+    mock_run.assert_any_call(['git', '-C', '/tmp/b', 'rev-parse', 'HEAD'], capture_output=True, text=True, check=True)
 
 
 def test_sync_skill_named(tmp_path):
@@ -370,7 +372,9 @@ def test_sync_skill_named(tmp_path):
         mock_run.return_value = Mock(stdout='Already up to date.', stderr='')
         sync_skill('a')
 
-    mock_run.assert_called_once_with(['git', '-C', '/tmp/a', 'pull'], capture_output=True, text=True, check=True)
+    assert mock_run.call_count == 2
+    mock_run.assert_any_call(['git', '-C', '/tmp/a', 'pull'], capture_output=True, text=True, check=True)
+    mock_run.assert_any_call(['git', '-C', '/tmp/a', 'rev-parse', 'HEAD'], capture_output=True, text=True, check=True)
 
 
 def test_sync_skill_pinned_rechecks_out(tmp_path):
@@ -629,7 +633,7 @@ def test_list_skills_prints_table(tmp_path, capsys):
         list_skills()
     out = capsys.readouterr().out
     assert 'mything' in out
-    assert 'version' in out
+    assert 'git_sha1' in out
 
 
 # -- env_set / env_list / env_init --
