@@ -144,17 +144,38 @@ Creates `$SKILLS_HOME` (default `~/.agents/skills`), symlinks this repo into it,
 
 ### Session startup
 
-Add this to your Claude Code `settings.json` `SessionStart` hook to load skills automatically:
+Add this hook to your Claude Code `settings.json` under `SessionStart`:
 
 ```json
 {
-  "type": "command",
-  "command": "python3 \"${SKILLS_HOME:-$HOME/.agents/skills}/manage-skills-skill/manage_skills.py\" context",
-  "statusMessage": "Loading skills..."
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${SKILLS_HOME:-$HOME/.agents/skills}/manage-skills-skill/manage_skills.py\" context",
+            "statusMessage": "Loading skills..."
+          }
+        ]
+      }
+    ]
+  }
 }
 ```
 
-Skills with `load_at_startup: true` in `skills.md` will have their full `SKILL.md` injected into each session's context. When a local `skills.md` exists in the project being opened, it takes precedence over the global one.
+At session start, Claude Code runs the `context` subcommand, which:
+
+1. Resolves `skills.md` — checks the working directory for a local `skills.md` first, falls back to `$SKILLS_HOME/skills.md`.
+2. Filters for skills with `load_at_startup: true`.
+3. Reads each matching skill's `SKILL.md` in full.
+4. Returns a JSON payload with an `additionalContext` field containing all the `SKILL.md` content concatenated.
+
+Claude Code injects that context into the session's system prompt before the first message, so those skills' slash commands and instructions are available immediately without any per-session setup.
+
+Skills installed with `--load-at-startup` get this flag set in `skills.md`. Skills without it are still available as slash commands (via `~/.claude/commands/`) but their instructions are not pre-loaded — they are invoked on demand.
+
+When a local `skills.md` exists in the project being opened, it takes precedence over the global one, so per-project skill sets work automatically.
 
 ---
 

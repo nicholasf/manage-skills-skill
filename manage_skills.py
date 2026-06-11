@@ -245,6 +245,10 @@ def sync_skill(name=None, version=None):
                     check=True
                 )
                 print(f"  {result.stdout.strip()}")
+                resolved = resolve_sha1(skill['local_path'])
+                skill['version'] = resolved
+                changed = True
+                print(f"  Resolved to {resolved[:8]}")
         except subprocess.CalledProcessError as e:
             print(f"  Error: {e.stderr.strip() if e.stderr else str(e)}")
 
