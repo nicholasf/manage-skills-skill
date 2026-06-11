@@ -102,11 +102,11 @@ $SKILLS_HOME/
 | `url` | The git remote URL the skill was cloned from. Used by `sync` to fetch updates. |
 | `local_path` | Absolute path to the cloned repo on this machine. All operations (git, SKILL.md reads, command wiring) use this path directly. |
 | `load_at_startup` | If `true`, the skill's full `SKILL.md` is injected into the Claude Code session context at startup via the `SessionStart` hook. |
-| `version` | Full SHA1 of the checked-out commit. Populated automatically by `sync` after every pull or checkout. Empty means the skill has never been synced; `sync` will pull latest and fill it in. |
+| `git_sha1` | Full SHA1 of the checked-out commit. Populated automatically by `sync` after every pull or checkout. Empty means the skill has never been synced; `sync` will pull latest and fill it in. |
 
 ### Versioning
 
-The `version` column in `skills.md` stores a full SHA1. `install --version` and `sync --version` check out the given ref and resolve it to a full SHA1 via `git rev-parse`. Skills without a version track the latest main branch and are updated by `sync`. Since the skills are git repos, any ref git understands — SHA1, tag, or branch name — works.
+The `git_sha1` column in `skills.md` stores a full SHA1. `install --version` and `sync --version` check out the given ref and resolve it to a full SHA1 via `git rev-parse`. Skills without a SHA1 track the latest main branch and are updated by `sync`. Since the skills are git repos, any ref git understands — SHA1, tag, or branch name — works.
 
 ### Per-project skills
 

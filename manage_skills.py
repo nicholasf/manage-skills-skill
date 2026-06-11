@@ -60,8 +60,8 @@ def read_skill_list():
 def write_skill_list(skills):
     skill_list_path = get_skill_list_path()
     with open(skill_list_path, 'w') as f:
-        f.write('| name | url | local_path | load_at_startup | version |\n')
-        f.write('|------|-----|------------|-----------------|--------|\n')
+        f.write('| name | url | local_path | load_at_startup | git_sha1 |\n')
+        f.write('|------|-----|------------|-----------------|----------|\n')
         for skill in skills:
             load_at_startup = 'true' if skill.get('load_at_startup', False) else 'false'
             version = skill.get('version', '')
@@ -263,8 +263,8 @@ def list_skills():
         print("No skills found.")
         return
 
-    print("| name | url | local_path | load_at_startup | version | dependencies |")
-    print("|------|-----|------------|-----------------|---------|--------------|")
+    print("| name | url | local_path | load_at_startup | git_sha1 | dependencies |")
+    print("|------|-----|------------|-----------------|----------|--------------|")
     for skill in skills:
         load_at_startup = 'true' if skill.get('load_at_startup', False) else 'false'
         dependencies = read_skill_dependencies(skill['local_path'])
