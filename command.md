@@ -32,7 +32,7 @@ With `--version <ref>`: re-pins the named skill to the given SHA1 or tag (resolv
 python3 "${SKILLS_HOME:-$HOME/.agents/skills}/manage-skills-skill/manage_skills.py" init
 ```
 
-Initialises a per-project `skills.md` and `.skills/` directory in the current working directory. After init, `install` will write to the local `skills.md` and create `.skills/<name>` symlinks. Safe to run once per project.
+Initialises a per-project `skills.md` and `.skills/` directory in the current working directory. After `init`, `install` will write to the local `skills.md` and create `.skills/<name>` symlinks. Safe to run once per project.
 
 ### `list`
 
@@ -75,4 +75,4 @@ When `install` finds a `command.md` in the skill root, it creates a symlink:
 ~/.claude/commands/<name>.md → <local_path>/command.md
 ```
 
-This registers the skill as a slash command in Claude Code. The symlink is created or replaced on every install.
+This registers the skill as a slash command in Claude Code. The symlink is created or replaced on every `install`.
