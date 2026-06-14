@@ -1,12 +1,26 @@
 # manage-skills-skill
 
-A skill that manages other skill from a locally kept, global registry (a bit like pnpm, cargo and uv). A global store at `$SKILLS_HOME` holds cloned skill repos, and per-project `skills.md` files declare which skills a project needs at which versions. Projects maintain their own `.skills/` with symlinks into the global store, so the repos are cloned once and shared across projects. Alternatively, you can just default to loading the $SKILLS_HOME/skills.md if you are using a global collection of skills across many projects.
+A skill that manages other skills from a locally kept, global registry (a bit like pnpm, cargo and uv). A global store at `$SKILLS_HOME` holds cloned skill repos, and per-project `skills.md` files declare which skills a project needs at which versions. Projects maintain their own `.skills/` with symlinks into the global store, so the repos are cloned once and shared across projects. Alternatively, you can just default to loading the `$SKILLS_HOME/skills.md` if you are using a global collection of skills across many projects.
 
-For convenience, this skill also sets up a .env file that secrets can use: skills often need API keys or node credentials that must never be committed. `$SKILLS_HOME/.env` holds these machine-local secrets, scaffolded from each skill's `.env.example`, so skills can find their credentials without hardcoding anything.
+For convenience, this skill also sets up a `.env` file that secrets can use: skills often need API keys or node credentials that must never be committed. `$SKILLS_HOME/.env` holds these machine-local secrets, scaffolded from each skill's `.env.example`, so skills can find their credentials without hardcoding anything.
 
 _For Claude_
 
-To have your favourite skill slash commands automatically available at startup, mark skills `load_at_startup` — their full `SKILL.md` (frontmatter and body) is injected into the agent's working context at the start of each Claude Code session. The `context` subcommand, wired into Claude Code's `SessionStart` hook, resolves which `skills.md` to read: it checks the working directory for a local `skills.md` first, and falls back to `$SKILLS_HOME/skills.md` if none is found. This means projects with a committed `skills.md` get their own skill set, while any directory without one gets the global default — no per-project setup required to get started.
+To have your favourite skill slash commands automatically available at startup, mark skills `load_at_startup` — their full `SKILL.md` (frontmatter and body) is injected into the agent's working context at the start of each Claude Code session. The `list --json --for-claude-startup` command, wired into Claude Code's `SessionStart` hook, resolves which `skills.md` to read: it checks the working directory for a local `skills.md` first, and falls back to `$SKILLS_HOME/skills.md` if none is found. This means projects with a committed `skills.md` get their own skill set, while any directory without one gets the global default — no per-project setup required to get started.
+
+---
+
+## Subcommands
+
+- `install <url> [--name N] [--path P] [--version REF] [--load-at-startup] [--skip-clone]` — clone, register, and wire up a skill
+- `sync [name] [--version REF]` — pull latest for unpinned skills; re-checkout pinned ref
+- `list [--json] [--for-claude-startup]` — show the skill registry; combine both flags for the SessionStart hook payload
+- `check` — audit the dependency graph for cycles
+- `init` — create per-project `skills.md` and `.skills/` in the current directory
+- `env set KEY=V` — write a key to `.env`
+- `env list` — print key names (not values)
+- `env init` — scaffold `.env` from each skill's `.env.example`
+- `help` — print usage
 
 ---
 
@@ -69,15 +83,15 @@ Creates `skills.md` and `.skills/` in the current directory. Subsequent `install
 /manage-skills env init
 ```
 
-**Wire up the `context` subcommand in Claude Code's `SessionStart` hook (`settings.json`):**
+**Wire up the session startup hook in Claude Code's `settings.json`:**
 ```json
 {
   "type": "command",
-  "command": "python3 \"${SKILLS_HOME:-$HOME/.agents/skills}/manage-skills-skill/manage_skills.py\" context",
+  "command": "python3 \"${SKILLS_HOME:-$HOME/.agents/skills}/manage-skills-skill/manage_skills.py\" list --json --for-claude-startup",
   "statusMessage": "Loading skills..."
 }
 ```
-At session start, `context` checks the working directory for a local `skills.md`, falls back to `$SKILLS_HOME/skills.md`, and injects the `SKILL.md` of every `load_at_startup` skill into the session context.
+At session start, this checks the working directory for a local `skills.md`, falls back to `$SKILLS_HOME/skills.md`, and injects the `SKILL.md` of every `load_at_startup` skill into the session context.
 
 ---
 
@@ -164,7 +178,7 @@ Add this hook to your Claude Code `settings.json` under `SessionStart`:
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"${SKILLS_HOME:-$HOME/.agents/skills}/manage-skills-skill/manage_skills.py\" context",
+            "command": "python3 \"${SKILLS_HOME:-$HOME/.agents/skills}/manage-skills-skill/manage_skills.py\" list --json --for-claude-startup",
             "statusMessage": "Loading skills..."
           }
         ]
@@ -174,7 +188,7 @@ Add this hook to your Claude Code `settings.json` under `SessionStart`:
 }
 ```
 
-At session start, Claude Code runs the `context` subcommand, which:
+At session start, Claude Code runs `list --json --for-claude-startup`, which:
 
 1. Resolves `skills.md` — checks the working directory for a local `skills.md` first, falls back to `$SKILLS_HOME/skills.md`.
 2. Filters for skills with `load_at_startup: true`.
@@ -186,34 +200,6 @@ Claude Code injects that context into the session's system prompt before the fir
 Skills installed with `--load-at-startup` get this flag set in `skills.md`. Skills without it are still available as slash commands (via `~/.claude/commands/`) but their instructions are not pre-loaded — they are invoked on demand.
 
 When a local `skills.md` exists in the project being opened, it takes precedence over the global one, so per-project skill sets work automatically.
-
----
-
-## Subcommands
-
-**`install <url> [--name <name>] [--path <local_path>] [--version <sha1-or-tag>] [--load-at-startup]`**
-Clone, symlink, register, and wire up a skill. Use `--version` to pin to a SHA1 or tag. Use `--path` to point at a local clone instead of cloning fresh.
-
-**`sync [name] [--version <sha1-or-tag>]`**
-Pull latest for unpinned skills; re-checkout pinned SHA1s. With `--version`, re-pin the named skill to a new ref.
-
-**`init`**
-Initialise a per-project `skills.md` and `.skills/` in the current directory.
-
-**`list`**
-Print the skill registry with version and dependency columns.
-
-**`check`**
-Audit the dependency graph for cycles.
-
-**`env set KEY=value`**
-Write or update a key in `$SKILLS_HOME/.env`.
-
-**`env list`**
-Print all key names (not values).
-
-**`env init`**
-Scaffold `.env` from the `.env.example` files of every installed skill. Safe to run repeatedly — existing keys are never overwritten.
 
 ---
 
