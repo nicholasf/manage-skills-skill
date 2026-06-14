@@ -4,7 +4,6 @@ import argparse
 import sys
 
 import subcommands.check as check
-import subcommands.context as context
 import subcommands.env as env
 import subcommands.help as help_cmd
 import subcommands.init as init_cmd
@@ -26,6 +25,10 @@ def main():
     parser.add_argument('--skip-clone', action='store_true', default=False,
                         help='Register an already-cloned local repo without git cloning')
     parser.add_argument('--version', help='Git SHA1 or tag to pin the skill to')
+    parser.add_argument('--json', action='store_true', default=False,
+                        help='Output as JSON (list subcommand)')
+    parser.add_argument('--for-claude-startup', action='store_true', default=False,
+                        help='Filter to load_at_startup skills; with --json emits SessionStart hook payload')
     parser.add_argument('url', nargs='?', help='URL of the skill repository')
     parser.add_argument('extra', nargs='?', help='Extra argument (e.g. KEY=value for env set, sub-action for env)')
 
@@ -38,8 +41,7 @@ def main():
     dispatch = {
         'install': install.run,   # clone a skill repo and register it in skills.md
         'sync':    sync.run,      # pull latest changes (or re-checkout a pinned ref) for installed skills
-        'list':    list_cmd.run,  # print a table of installed skills and their metadata
-        'context': context.run,   # emit SessionStart JSON for skills marked load_at_startup
+        'list':    list_cmd.run,  # table or JSON of skills; --for-claude-startup + --json emits SessionStart payload
         'check':   check.run,     # scan the dependency graph and report any cycles
         'init':    init_cmd.run,  # create a per-project skills.md and .skills/ directory
         'env':     env.run,       # manage .env variables used by skills (set / list / init)
