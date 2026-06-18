@@ -65,16 +65,16 @@ def write_skill_list(skills):
             f.write(f"| {skill['name']} | {skill['url']} | {skill['local_path']} | {load_at_startup} | {version} |\n")
 
 
-def read_skill_dependencies(local_path):
+def _read_skill_frontmatter(local_path):
     skill_md = os.path.join(local_path, 'SKILL.md')
     if not os.path.exists(skill_md):
-        return []
+        return None, []
 
     with open(skill_md, 'r') as f:
         lines = f.readlines()
 
     if not lines or lines[0].strip() != '---':
-        return []
+        return None, []
 
     frontmatter_end = -1
     for i in range(1, len(lines)):
@@ -83,21 +83,34 @@ def read_skill_dependencies(local_path):
             break
 
     if frontmatter_end == -1:
-        return []
+        return None, []
 
+    name = None
     dependencies = []
     in_depends_on = False
     for line in lines[1:frontmatter_end]:
         stripped = line.strip()
-        if stripped.startswith('depends_on:'):
+        if stripped.startswith('name:'):
+            name = stripped[len('name:'):].strip()
+            in_depends_on = False
+        elif stripped.startswith('depends_on:'):
             in_depends_on = True
-            continue
-        if in_depends_on:
+        elif in_depends_on:
             if stripped.startswith('- '):
                 dependencies.append(stripped[2:].strip())
             elif stripped and not stripped.startswith('#'):
                 in_depends_on = False
 
+    return name, dependencies
+
+
+def read_skill_name(local_path):
+    name, _ = _read_skill_frontmatter(local_path)
+    return name
+
+
+def read_skill_dependencies(local_path):
+    _, dependencies = _read_skill_frontmatter(local_path)
     return dependencies
 
 
@@ -146,11 +159,16 @@ def wire_command(name, local_path):
     command_md = os.path.join(local_path, 'command.md')
     if not os.path.exists(command_md):
         return
+    skill_name = read_skill_name(local_path)
+    command_name = skill_name if skill_name else name
     commands_dir = os.path.expanduser('~/.claude/commands')
     os.makedirs(commands_dir, exist_ok=True)
-    symlink_path = os.path.join(commands_dir, f'{name}.md')
-    if os.path.lexists(symlink_path):
-        os.remove(symlink_path)
+    # Remove stale symlink under either the old or new name
+    for candidate in set([name, command_name]):
+        stale = os.path.join(commands_dir, f'{candidate}.md')
+        if os.path.lexists(stale):
+            os.remove(stale)
+    symlink_path = os.path.join(commands_dir, f'{command_name}.md')
     os.symlink(command_md, symlink_path)
     print(f'Command: {symlink_path} → {command_md}')
 
