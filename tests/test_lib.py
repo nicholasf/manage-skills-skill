@@ -1,10 +1,12 @@
 import os
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import pytest
 
 from lib import (
+    check_registry_drift,
     find_cycle,
+    format_drift_report,
     get_skill_list_path,
     is_project_mode,
     read_skill_dependencies,
@@ -199,3 +201,115 @@ def test_is_project_mode_true_when_skills_md_present(tmp_path):
 def test_is_project_mode_false_without_skills_md(tmp_path):
     with patch('os.getcwd', return_value=str(tmp_path)):
         assert is_project_mode() is False
+
+
+# -- check_registry_drift --
+
+def _skill(name, local_path, url='u'):
+    return {'name': name, 'url': url, 'local_path': str(local_path), 'load_at_startup': False, 'version': ''}
+
+
+def test_check_registry_drift_missing_local_path(tmp_path):
+    skills = [_skill('ghost', tmp_path / 'missing')]
+    drifted = check_registry_drift(skills)
+    assert len(drifted) == 1
+    assert drifted[0]['name'] == 'ghost'
+    assert 'does not exist' in drifted[0]['issues'][0]
+
+
+def test_check_registry_drift_url_mismatch(tmp_path, monkeypatch):
+    local = tmp_path / 'skill'
+    local.mkdir()
+    skills_home = tmp_path / 'skills-home'
+    skills_home.mkdir()
+    os.symlink(local, skills_home / 'skill')
+    monkeypatch.setenv('SKILLS_HOME', str(skills_home))
+
+    skills = [_skill('skill', local, url='git@github.com:x/old-name.git')]
+    with patch('subprocess.run', return_value=Mock(stdout='git@github.com:x/new-name.git\n')):
+        drifted = check_registry_drift(skills)
+
+    assert len(drifted) == 1
+    assert 'does not match git remote' in drifted[0]['issues'][0]
+
+
+def test_check_registry_drift_missing_symlink(tmp_path, monkeypatch):
+    local = tmp_path / 'skill'
+    local.mkdir()
+    skills_home = tmp_path / 'skills-home'
+    skills_home.mkdir()
+    monkeypatch.setenv('SKILLS_HOME', str(skills_home))
+
+    skills = [_skill('skill', local)]
+    with patch('subprocess.run', return_value=Mock(stdout='u\n')):
+        drifted = check_registry_drift(skills)
+
+    assert any('missing symlink' in issue for issue in drifted[0]['issues'])
+
+
+def test_check_registry_drift_symlink_points_elsewhere(tmp_path, monkeypatch):
+    local = tmp_path / 'skill'
+    local.mkdir()
+    other = tmp_path / 'other'
+    other.mkdir()
+    skills_home = tmp_path / 'skills-home'
+    skills_home.mkdir()
+    os.symlink(other, skills_home / 'skill')
+    monkeypatch.setenv('SKILLS_HOME', str(skills_home))
+
+    skills = [_skill('skill', local)]
+    with patch('subprocess.run', return_value=Mock(stdout='u\n')):
+        drifted = check_registry_drift(skills)
+
+    assert any('points elsewhere' in issue for issue in drifted[0]['issues'])
+
+
+def test_check_registry_drift_missing_command_symlink(tmp_path, monkeypatch):
+    local = tmp_path / 'skill'
+    local.mkdir()
+    (local / 'command.md').write_text('# Skill')
+    skills_home = tmp_path / 'skills-home'
+    skills_home.mkdir()
+    os.symlink(local, skills_home / 'skill')
+    monkeypatch.setenv('SKILLS_HOME', str(skills_home))
+    monkeypatch.setenv('HOME', str(tmp_path))
+
+    skills = [_skill('skill', local)]
+    with patch('subprocess.run', return_value=Mock(stdout='u\n')):
+        drifted = check_registry_drift(skills)
+
+    assert any('command symlink' in issue for issue in drifted[0]['issues'])
+
+
+def test_check_registry_drift_clean(tmp_path, monkeypatch):
+    local = tmp_path / 'skill'
+    local.mkdir()
+    (local / 'command.md').write_text('# Skill')
+    skills_home = tmp_path / 'skills-home'
+    skills_home.mkdir()
+    os.symlink(local, skills_home / 'skill')
+    monkeypatch.setenv('SKILLS_HOME', str(skills_home))
+    monkeypatch.setenv('HOME', str(tmp_path))
+    commands_dir = tmp_path / '.claude' / 'commands'
+    commands_dir.mkdir(parents=True)
+    os.symlink(local / 'command.md', commands_dir / 'skill.md')
+
+    skills = [_skill('skill', local)]
+    with patch('subprocess.run', return_value=Mock(stdout='u\n')):
+        drifted = check_registry_drift(skills)
+
+    assert drifted == []
+
+
+# -- format_drift_report --
+
+def test_format_drift_report_empty():
+    assert format_drift_report([]) == ''
+
+
+def test_format_drift_report_lists_name_and_issues():
+    drifted = [{'name': 'skill', 'issues': ['issue one', 'issue two']}]
+    report = format_drift_report(drifted)
+    assert 'skill' in report
+    assert 'issue one' in report
+    assert 'issue two' in report
