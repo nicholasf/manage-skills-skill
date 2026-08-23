@@ -2,7 +2,7 @@ import json
 import os
 import sys
 
-from lib import read_skill_dependencies, read_skill_list
+from lib import check_registry_drift, format_drift_report, read_skill_dependencies, read_skill_list
 
 
 def run(args):
@@ -55,7 +55,8 @@ def _list_skills_json():
 
 
 def _startup_payload():
-    skills = [s for s in read_skill_list() if s.get('load_at_startup', False)]
+    all_skills = read_skill_list()
+    skills = [s for s in all_skills if s.get('load_at_startup', False)]
     context_parts = []
     for skill in skills:
         skill_md_path = os.path.join(skill['local_path'], 'SKILL.md')
@@ -64,9 +65,20 @@ def _startup_payload():
             continue
         with open(skill_md_path, 'r') as f:
             context_parts.append(f.read().strip())
+
+    drifted = check_registry_drift(all_skills)
+    for entry in drifted:
+        for issue in entry['issues']:
+            print(f"Warning: drift in skill '{entry['name']}': {issue}", file=sys.stderr)
+
+    context_body = '\n\n---\n\n'.join(context_parts)
+    drift_report = format_drift_report(drifted)
+    if drift_report:
+        context_body = f"{drift_report}\n\n---\n\n{context_body}" if context_body else drift_report
+
     print(json.dumps({
         "hookSpecificOutput": {
             "hookEventName": "SessionStart",
-            "additionalContext": '\n\n---\n\n'.join(context_parts)
+            "additionalContext": context_body
         }
     }))

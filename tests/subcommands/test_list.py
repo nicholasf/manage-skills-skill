@@ -1,6 +1,7 @@
 import argparse
 import json
-from unittest.mock import patch
+import os
+from unittest.mock import Mock, patch
 
 from lib import write_skill_list
 from subcommands.list import (
@@ -127,18 +128,72 @@ def test_startup_payload_joins_multiple_with_separator(tmp_path, capsys):
     assert '\n\n---\n\n' in ctx
 
 
-def test_startup_payload_missing_skill_md_warns_stderr_and_skips(tmp_path, capsys):
+def test_startup_payload_missing_skill_md_warns_stderr_and_skips(tmp_path, monkeypatch, capsys):
+    # local_path exists (and is registered cleanly) so only the missing-SKILL.md
+    # warning fires, isolating it from the separate drift-reporting behaviour.
+    ghost_dir = tmp_path / 'ghost'
+    ghost_dir.mkdir()
+    skills_home = tmp_path / 'skills-home'
+    skills_home.mkdir()
+    os.symlink(ghost_dir, skills_home / 'ghost')
+    monkeypatch.setenv('SKILLS_HOME', str(skills_home))
+
     p = tmp_path / 'skills.md'
     skills = [
-        {'name': 'ghost', 'url': 'u', 'local_path': str(tmp_path / 'ghost'), 'load_at_startup': True, 'version': ''},
+        {'name': 'ghost', 'url': 'u', 'local_path': str(ghost_dir), 'load_at_startup': True, 'version': ''},
     ]
-    with patch('lib.get_skill_list_path', return_value=str(p)):
+    with patch('lib.get_skill_list_path', return_value=str(p)), \
+         patch('subprocess.run', return_value=Mock(stdout='u\n')):
         write_skill_list(skills)
         _startup_payload()
 
     captured = capsys.readouterr()
     assert 'ghost' in captured.err
     assert json.loads(captured.out)['hookSpecificOutput']['additionalContext'] == ''
+
+
+def test_startup_payload_includes_drift_warning(tmp_path, monkeypatch, capsys):
+    skill_dir = tmp_path / 'skill1'
+    skill_dir.mkdir()
+    (skill_dir / 'SKILL.md').write_text('Skill one content')
+    skills_home = tmp_path / 'skills-home'
+    skills_home.mkdir()  # no symlink created for skill1 -> drift
+    monkeypatch.setenv('SKILLS_HOME', str(skills_home))
+
+    p = tmp_path / 'skills.md'
+    skills = [{'name': 'skill1', 'url': 'u1', 'local_path': str(skill_dir), 'load_at_startup': True, 'version': ''}]
+    with patch('lib.get_skill_list_path', return_value=str(p)), \
+         patch('subprocess.run', return_value=Mock(stdout='u1\n')):
+        write_skill_list(skills)
+        _startup_payload()
+
+    captured = capsys.readouterr()
+    assert 'drift' in captured.err.lower()
+    ctx = json.loads(captured.out)['hookSpecificOutput']['additionalContext']
+    assert 'drift' in ctx.lower()
+    assert 'Skill one content' in ctx
+
+
+def test_startup_payload_no_drift_section_when_clean(tmp_path, monkeypatch, capsys):
+    skill_dir = tmp_path / 'skill1'
+    skill_dir.mkdir()
+    (skill_dir / 'SKILL.md').write_text('Skill one content')
+    skills_home = tmp_path / 'skills-home'
+    skills_home.mkdir()
+    os.symlink(skill_dir, skills_home / 'skill1')
+    monkeypatch.setenv('SKILLS_HOME', str(skills_home))
+
+    p = tmp_path / 'skills.md'
+    skills = [{'name': 'skill1', 'url': 'u1', 'local_path': str(skill_dir), 'load_at_startup': True, 'version': ''}]
+    with patch('lib.get_skill_list_path', return_value=str(p)), \
+         patch('subprocess.run', return_value=Mock(stdout='u1\n')):
+        write_skill_list(skills)
+        _startup_payload()
+
+    captured = capsys.readouterr()
+    assert captured.err == ''
+    ctx = json.loads(captured.out)['hookSpecificOutput']['additionalContext']
+    assert ctx == 'Skill one content'
 
 
 def test_startup_payload_valid_json_structure(tmp_path, capsys):

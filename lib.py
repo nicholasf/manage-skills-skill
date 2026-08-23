@@ -155,6 +155,74 @@ def resolve_sha1(local_path):
     return result.stdout.strip()
 
 
+def _git_remote_url(local_path):
+    try:
+        result = subprocess.run(
+            ['git', '-C', local_path, 'remote', 'get-url', 'origin'],
+            capture_output=True, text=True, check=True,
+        )
+        return result.stdout.strip()
+    except (subprocess.CalledProcessError, OSError):
+        return None
+
+
+def check_registry_drift(skills):
+    """Compare each registered skill against reality on disk.
+
+    Returns a list of {'name': ..., 'issues': [...]} for any skill whose
+    local_path, git remote, or symlinks no longer match skills.md — e.g.
+    after the underlying repo or directory was renamed.
+    """
+    skills_home = get_skills_home()
+    commands_dir = os.path.expanduser('~/.claude/commands')
+    drifted = []
+
+    for skill in skills:
+        issues = []
+        local_path = skill['local_path']
+
+        if not os.path.isdir(local_path):
+            issues.append(f"local_path does not exist: {local_path}")
+            drifted.append({'name': skill['name'], 'issues': issues})
+            continue
+
+        actual_url = _git_remote_url(local_path)
+        if actual_url and actual_url != skill['url']:
+            issues.append(f"registered url ({skill['url']}) does not match git remote ({actual_url})")
+
+        symlink_path = os.path.join(skills_home, skill['name'])
+        if not os.path.islink(symlink_path):
+            issues.append(f"missing symlink: {symlink_path}")
+        elif os.path.realpath(symlink_path) != os.path.realpath(local_path):
+            issues.append(f"symlink {symlink_path} points elsewhere")
+
+        command_md = os.path.join(local_path, 'command.md')
+        if os.path.exists(command_md):
+            command_name = read_skill_name(local_path) or skill['name']
+            command_symlink = os.path.join(commands_dir, f'{command_name}.md')
+            if not os.path.islink(command_symlink):
+                issues.append(f"missing command symlink: {command_symlink}")
+            elif os.path.realpath(command_symlink) != os.path.realpath(command_md):
+                issues.append(f"command symlink {command_symlink} points elsewhere")
+
+        if issues:
+            drifted.append({'name': skill['name'], 'issues': issues})
+
+    return drifted
+
+
+def format_drift_report(drifted):
+    """Human-readable multi-line drift report, or '' if drifted is empty."""
+    if not drifted:
+        return ''
+    lines = ['Skill registry drift detected:']
+    for entry in drifted:
+        lines.append(f"- {entry['name']}:")
+        for issue in entry['issues']:
+            lines.append(f"    {issue}")
+    return '\n'.join(lines)
+
+
 def wire_command(name, local_path):
     command_md = os.path.join(local_path, 'command.md')
     if not os.path.exists(command_md):
