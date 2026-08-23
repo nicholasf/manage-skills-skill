@@ -119,3 +119,39 @@ def test_sync_skill_error_does_not_raise(tmp_path, capsys):
         sync_skill('a')  # must not raise
 
     assert 'Error' in capsys.readouterr().out
+
+
+def test_sync_rewires_command_and_skills_dir_for_every_skill(tmp_path):
+    p = tmp_path / 'skills.md'
+    skills = [
+        {'name': 'a', 'url': 'u1', 'local_path': '/tmp/a', 'load_at_startup': False, 'version': ''},
+        {'name': 'b', 'url': 'u2', 'local_path': '/tmp/b', 'load_at_startup': False, 'version': ''},
+    ]
+    with patch('lib.get_skill_list_path', return_value=str(p)):
+        write_skill_list(skills)
+
+    with patch('lib.get_skill_list_path', return_value=str(p)), \
+         patch('subprocess.run') as mock_run, \
+         patch('subcommands.sync.wire_command') as mock_wire_command, \
+         patch('subcommands.sync.wire_skills_dir') as mock_wire_skills_dir:
+        mock_run.return_value = Mock(stdout='Already up to date.', stderr='')
+        sync_skill()
+
+    assert mock_wire_command.call_args_list == [call('a', '/tmp/a'), call('b', '/tmp/b')]
+    assert mock_wire_skills_dir.call_args_list == [call('a', '/tmp/a'), call('b', '/tmp/b')]
+
+
+def test_sync_rewires_command_even_when_git_fails(tmp_path):
+    p = tmp_path / 'skills.md'
+    skills = [{'name': 'a', 'url': 'u', 'local_path': '/tmp/a', 'load_at_startup': False, 'version': ''}]
+    with patch('lib.get_skill_list_path', return_value=str(p)):
+        write_skill_list(skills)
+
+    with patch('lib.get_skill_list_path', return_value=str(p)), \
+         patch('subprocess.run', side_effect=subprocess.CalledProcessError(1, 'git', stderr='fetch failed')), \
+         patch('subcommands.sync.wire_command') as mock_wire_command, \
+         patch('subcommands.sync.wire_skills_dir') as mock_wire_skills_dir:
+        sync_skill('a')
+
+    mock_wire_command.assert_called_once_with('a', '/tmp/a')
+    mock_wire_skills_dir.assert_called_once_with('a', '/tmp/a')

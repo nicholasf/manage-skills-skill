@@ -1,7 +1,7 @@
 import subprocess
 import sys
 
-from lib import read_skill_list, resolve_sha1, write_skill_list
+from lib import read_skill_list, resolve_sha1, wire_command, wire_skills_dir, write_skill_list
 
 
 def run(args):
@@ -57,6 +57,12 @@ def _sync_skill(name=None, version=None):
                 print(f"  Resolved to {resolved[:8]}")
         except subprocess.CalledProcessError as e:
             print(f"  Error: {e.stderr.strip() if e.stderr else str(e)}")
+
+        # Re-wire on every sync, not just install, so a command symlink that
+        # drifted (e.g. named after the repo instead of SKILL.md's declared
+        # name) self-heals here instead of only being reported by `check`.
+        wire_command(skill['name'], skill['local_path'])
+        wire_skills_dir(skill['name'], skill['local_path'])
 
     if changed:
         write_skill_list(skills)
